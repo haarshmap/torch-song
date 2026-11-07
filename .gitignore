@@ -1,3 +1,4 @@
 .git
 go.mod
 go.sum
+.todo
