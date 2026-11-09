@@ -38,8 +38,17 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.KeyPressMsg:
 		switch msg.String() {
+		case "a":
+			m.mpv.TogglePause()
+			return m, nil
 		case "j":
 			m.mpv.Next()
+			return m, nil
+		case "k":
+			m.mpv.Prev()
+			return m, nil
+		case "esc":
+			m.mpv.ToggleMute()
 			return m, nil
 
 		case "ctrl+c", "q":
@@ -67,7 +76,6 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
-	fmt.Println("Socket connection established")
 	defer server.Stop()
 	defer client.Close()
 
