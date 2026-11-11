@@ -2,10 +2,10 @@ package main
 
 import (
 	"context"
-	"fmt"
 	"log"
 	"os"
 	"path/filepath"
+	"strconv"
 
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
@@ -13,12 +13,9 @@ import (
 )
 
 type model struct {
-	count int
-	mpv   *gompv.Client
-}
-
-type mpvFinishedMsg struct {
-	err error
+	mpv              *gompv.Client
+	directories      string
+	directoryEntries string
 }
 
 var (
@@ -50,7 +47,25 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "esc":
 			m.mpv.ToggleMute()
 			return m, nil
-
+		case "v":
+			m.mpv.Shuffle()
+			return m, nil
+		case "h":
+			total, _ := m.mpv.GetVolume()
+			total += 5
+			if total > 100 {
+				total = 100
+			}
+			m.mpv.SetVolume(total)
+			return m, nil
+		case "l":
+			total, _ := m.mpv.GetVolume()
+			total -= 5
+			if total < 0 {
+				total = 0
+			}
+			m.mpv.SetVolume(total)
+			return m, nil
 		case "ctrl+c", "q":
 			return m, tea.Quit
 		}
@@ -59,7 +74,25 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (m model) View() tea.View {
-	v := tea.NewView(fmt.Sprintf(container.Render("The Player im trying to make")))
+	homeDir, _ := os.UserHomeDir()
+	filePath := filepath.Join(homeDir, "/Music/loyalty_card")
+	playlist, _ := os.ReadDir(filePath)
+
+	var songList []string
+	for _, file := range playlist {
+		songList = append(songList, file.Name())
+	}
+
+	vol, _ := m.mpv.GetVolume()
+	volStr := strconv.FormatFloat(vol, 'f', 0, 64)
+	content := lipgloss.JoinVertical(
+		lipgloss.Left,
+		"torch-song",
+		"",
+		volStr,
+	)
+
+	v := tea.NewView(container.Render(content))
 	v.AltScreen = true
 
 	return v
@@ -70,7 +103,7 @@ func main() {
 	if err != nil {
 		log.Printf("failed to access user home dir")
 	}
-	filePath := filepath.Join(homeDir, "/Music/loyalty_card")
+	filePath := filepath.Join(homeDir, "/Music")
 	socketPath := "/tmp/mpv.sock"
 	server, client, err := gompv.StartAndConnect(context.Background(), socketPath, filePath)
 	if err != nil {
