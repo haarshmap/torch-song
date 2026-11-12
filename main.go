@@ -13,9 +13,10 @@ import (
 )
 
 type model struct {
-	mpv              *gompv.Client
-	directories      string
-	directoryEntries string
+	mpv     *gompv.Client
+	title   string
+	timePos string
+	paused  string
 }
 
 var (
@@ -23,8 +24,7 @@ var (
 		Bold(true).
 		Border(lipgloss.NormalBorder()).
 		BorderForeground(lipgloss.Color("#cc6666")).
-		Width(120).
-		Height(39)
+		Padding(1, 2)
 )
 
 func (m model) Init() tea.Cmd {
@@ -33,15 +33,30 @@ func (m model) Init() tea.Cmd {
 
 func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
+	case gompv.Event:
+		if name, value, ok := msg.PropertyString(); ok && name == "media-title" {
+			m.title = value
+		}
+		if name, value, ok := msg.PropertyFloat(); ok && name == "time-pos" {
+			m.timePos = strconv.FormatFloat(value, 'f', 0, 64)
+		}
+		if name, value, ok := msg.PropertyBool(); ok && name == "pause" {
+			if value == true {
+				m.paused = "󰏤"
+			}
+			if value == false {
+				m.paused = ""
+			}
+		}
 	case tea.KeyPressMsg:
 		switch msg.String() {
 		case "a":
 			m.mpv.TogglePause()
 			return m, nil
-		case "j":
+		case "k":
 			m.mpv.Next()
 			return m, nil
-		case "k":
+		case "j":
 			m.mpv.Prev()
 			return m, nil
 		case "esc":
@@ -50,7 +65,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "v":
 			m.mpv.Shuffle()
 			return m, nil
-		case "h":
+		case "l":
 			total, _ := m.mpv.GetVolume()
 			total += 5
 			if total > 100 {
@@ -58,7 +73,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			m.mpv.SetVolume(total)
 			return m, nil
-		case "l":
+		case "h":
 			total, _ := m.mpv.GetVolume()
 			total -= 5
 			if total < 0 {
@@ -74,22 +89,16 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (m model) View() tea.View {
-	homeDir, _ := os.UserHomeDir()
-	filePath := filepath.Join(homeDir, "/Music/loyalty_card")
-	playlist, _ := os.ReadDir(filePath)
-
-	var songList []string
-	for _, file := range playlist {
-		songList = append(songList, file.Name())
-	}
-
 	vol, _ := m.mpv.GetVolume()
 	volStr := strconv.FormatFloat(vol, 'f', 0, 64)
 	content := lipgloss.JoinVertical(
 		lipgloss.Left,
 		"torch-song",
+		"current song: "+m.title+"\tVolume: "+volStr,
 		"",
-		volStr,
+		m.timePos, m.paused,
+		"",
+		"j -> prev | k -> next | h/l -> adjust volume | a -> pause/play | capsLock -> mute | v -> shuffle",
 	)
 
 	v := tea.NewView(container.Render(content))
@@ -112,7 +121,18 @@ func main() {
 	defer server.Stop()
 	defer client.Close()
 
+	err = client.ObserveProperties("media-title", "time-pos", "pause")
+	if err != nil {
+		log.Printf("Failed to observe properties")
+	}
+
 	p := tea.NewProgram(model{mpv: client})
+	go func() {
+		for ev := range client.Events() {
+			p.Send(ev)
+		}
+	}()
+
 	if _, err := p.Run(); err != nil {
 		os.Exit(1)
 	}
