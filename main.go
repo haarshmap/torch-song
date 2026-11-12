@@ -2,7 +2,9 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"log"
+	"math"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -13,10 +15,11 @@ import (
 )
 
 type model struct {
-	mpv     *gompv.Client
-	title   string
-	timePos string
-	paused  string
+	mpv      *gompv.Client
+	title    string
+	timePos  string
+	paused   string
+	duration string
 }
 
 var (
@@ -26,6 +29,15 @@ var (
 		BorderForeground(lipgloss.Color("#cc6666")).
 		Padding(1, 2)
 )
+
+func formatTime(seconds float64) string {
+	total := int64(math.Floor(seconds))
+	hours := total / 3600
+	minutes := (total % 3600) / 60
+	secs := total % 60
+
+	return fmt.Sprintf("%02d:%02d:%02d", hours, minutes, secs)
+}
 
 func (m model) Init() tea.Cmd {
 	return nil
@@ -38,7 +50,11 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.title = value
 		}
 		if name, value, ok := msg.PropertyFloat(); ok && name == "time-pos" {
-			m.timePos = strconv.FormatFloat(value, 'f', 0, 64)
+			m.timePos = formatTime(value)
+
+		}
+		if name, value, ok := msg.PropertyFloat(); ok && name == "duration" {
+			m.duration = formatTime(value)
 		}
 		if name, value, ok := msg.PropertyBool(); ok && name == "pause" {
 			if value == true {
@@ -94,9 +110,10 @@ func (m model) View() tea.View {
 	content := lipgloss.JoinVertical(
 		lipgloss.Left,
 		"torch-song",
-		"current song: "+m.title+"\tVolume: "+volStr,
+		"current song: "+m.title,
 		"",
-		m.timePos, m.paused,
+		m.timePos+"/"+m.duration+"\tVolume: "+volStr,
+		m.paused,
 		"",
 		"j -> prev | k -> next | h/l -> adjust volume | a -> pause/play | capsLock -> mute | v -> shuffle",
 	)
@@ -121,7 +138,7 @@ func main() {
 	defer server.Stop()
 	defer client.Close()
 
-	err = client.ObserveProperties("media-title", "time-pos", "pause")
+	err = client.ObserveProperties("media-title", "time-pos", "pause", "duration")
 	if err != nil {
 		log.Printf("Failed to observe properties")
 	}
