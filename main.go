@@ -8,26 +8,39 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 
+	"charm.land/bubbles/v2/progress"
+	"charm.land/bubbles/v2/spinner"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 	"github.com/ioksc/gompv"
 )
 
+// models
 type model struct {
-	mpv      *gompv.Client
-	title    string
-	timePos  string
-	paused   string
-	duration string
+	mpv          *gompv.Client
+	title        string
+	timePos      string
+	timePosFlag  float64
+	paused       string
+	duration     string
+	durationFlag float64
+	spinner      spinner.Model
+	progress     progress.Model
 }
 
 var (
 	container = lipgloss.NewStyle().
-		Bold(true).
-		Border(lipgloss.NormalBorder()).
-		BorderForeground(lipgloss.Color("#cc6666")).
-		Padding(1, 2)
+			Bold(true).
+			Border(lipgloss.NormalBorder()).
+			BorderForeground(lipgloss.Color("#cc6666")).
+			Padding(1, 2)
+
+	progressBar = lipgloss.NewStyle().
+			Width(120).
+			Foreground(lipgloss.Color("#cc6666")).
+			Padding(1, 2)
 )
 
 func formatTime(seconds float64) string {
@@ -40,7 +53,7 @@ func formatTime(seconds float64) string {
 }
 
 func (m model) Init() tea.Cmd {
-	return nil
+	return m.spinner.Tick
 }
 
 func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -51,16 +64,17 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		if name, value, ok := msg.PropertyFloat(); ok && name == "time-pos" {
 			m.timePos = formatTime(value)
-
+			m.timePosFlag = value
 		}
 		if name, value, ok := msg.PropertyFloat(); ok && name == "duration" {
 			m.duration = formatTime(value)
+			m.durationFlag = value
 		}
 		if name, value, ok := msg.PropertyBool(); ok && name == "pause" {
-			if value == true {
+			if value {
 				m.paused = "󰏤"
 			}
-			if value == false {
+			if !value {
 				m.paused = ""
 			}
 		}
@@ -100,6 +114,11 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "ctrl+c", "q":
 			return m, tea.Quit
 		}
+	default:
+		var cmd tea.Cmd
+		m.spinner, cmd = m.spinner.Update(msg)
+		return m, cmd
+
 	}
 	return m, nil
 }
@@ -107,21 +126,38 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 func (m model) View() tea.View {
 	vol, _ := m.mpv.GetVolume()
 	volStr := strconv.FormatFloat(vol, 'f', 0, 64)
+	spacer := strings.Repeat("\t", 9)
+	percent := (m.timePosFlag / m.durationFlag)
+
 	content := lipgloss.JoinVertical(
 		lipgloss.Left,
-		"torch-song",
+		m.spinner.View()+"torch-song",
 		"current song: "+m.title,
 		"",
-		m.timePos+"/"+m.duration+"\tVolume: "+volStr,
-		m.paused,
+		m.timePos+"/"+m.duration+spacer+"Volume: "+volStr,
+		m.paused+"  "+m.progress.ViewAs(percent),
 		"",
-		"j -> prev | k -> next | h/l -> adjust volume | a -> pause/play | capsLock -> mute | v -> shuffle",
+
+		"j -> prev | k -> next | h/l -> adjust volume | a -> pause/play | escape -> mute | v -> shuffle",
 	)
 
 	v := tea.NewView(container.Render(content))
 	v.AltScreen = true
 
 	return v
+}
+
+func initSpinnerAndProgress() (spinner.Model, progress.Model) {
+	s := spinner.New()
+	s.Spinner = spinner.Dot
+	s.Style = lipgloss.NewStyle().Foreground(lipgloss.Color("#a54242"))
+
+	p := progress.New(
+		progress.WithoutPercentage(),
+		progress.WithColors(lipgloss.Color("#cc6666"), lipgloss.Color("#cc6666")),
+		progress.WithWidth(61),
+	)
+	return s, p
 }
 
 func main() {
@@ -142,8 +178,9 @@ func main() {
 	if err != nil {
 		log.Printf("Failed to observe properties")
 	}
+	spin, prog := initSpinnerAndProgress()
 
-	p := tea.NewProgram(model{mpv: client})
+	p := tea.NewProgram(model{mpv: client, spinner: spin, progress: prog})
 	go func() {
 		for ev := range client.Events() {
 			p.Send(ev)
