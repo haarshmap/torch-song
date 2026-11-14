@@ -2,9 +2,7 @@ package main
 
 import (
 	"context"
-	"fmt"
 	"log"
-	"math"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -14,10 +12,10 @@ import (
 	"charm.land/bubbles/v2/spinner"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
+	"github.com/haarshmap/torch-song/internal"
 	"github.com/ioksc/gompv"
 )
 
-// models
 type model struct {
 	mpv          *gompv.Client
 	title        string
@@ -32,25 +30,11 @@ type model struct {
 
 var (
 	container = lipgloss.NewStyle().
-			Bold(true).
-			Border(lipgloss.NormalBorder()).
-			BorderForeground(lipgloss.Color("#cc6666")).
-			Padding(1, 2)
-
-	progressBar = lipgloss.NewStyle().
-			Width(120).
-			Foreground(lipgloss.Color("#cc6666")).
-			Padding(1, 2)
+		Bold(true).
+		Border(lipgloss.NormalBorder()).
+		BorderForeground(lipgloss.Color("#cc6666")).
+		Padding(1, 2)
 )
-
-func formatTime(seconds float64) string {
-	total := int64(math.Floor(seconds))
-	hours := total / 3600
-	minutes := (total % 3600) / 60
-	secs := total % 60
-
-	return fmt.Sprintf("%02d:%02d:%02d", hours, minutes, secs)
-}
 
 func (m model) Init() tea.Cmd {
 	return m.spinner.Tick
@@ -63,11 +47,11 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.title = value
 		}
 		if name, value, ok := msg.PropertyFloat(); ok && name == "time-pos" {
-			m.timePos = formatTime(value)
+			m.timePos = internal.FormatTime(value)
 			m.timePosFlag = value
 		}
 		if name, value, ok := msg.PropertyFloat(); ok && name == "duration" {
-			m.duration = formatTime(value)
+			m.duration = internal.FormatTime(value)
 			m.durationFlag = value
 		}
 		if name, value, ok := msg.PropertyBool(); ok && name == "pause" {
@@ -147,25 +131,12 @@ func (m model) View() tea.View {
 	return v
 }
 
-func initSpinnerAndProgress() (spinner.Model, progress.Model) {
-	s := spinner.New()
-	s.Spinner = spinner.Dot
-	s.Style = lipgloss.NewStyle().Foreground(lipgloss.Color("#a54242"))
-
-	p := progress.New(
-		progress.WithoutPercentage(),
-		progress.WithColors(lipgloss.Color("#cc6666"), lipgloss.Color("#cc6666")),
-		progress.WithWidth(61),
-	)
-	return s, p
-}
-
 func main() {
-	homeDir, err := os.UserHomeDir()
+	currDir, err := os.Getwd()
 	if err != nil {
-		log.Printf("failed to access user home dir")
+		log.Fatalf("failed to get curr dir: %v", err)
 	}
-	filePath := filepath.Join(homeDir, "/Music")
+	filePath := filepath.Join(currDir + "/Music")
 	socketPath := "/tmp/mpv.sock"
 	server, client, err := gompv.StartAndConnect(context.Background(), socketPath, filePath)
 	if err != nil {
@@ -178,7 +149,7 @@ func main() {
 	if err != nil {
 		log.Printf("Failed to observe properties")
 	}
-	spin, prog := initSpinnerAndProgress()
+	spin, prog := internal.InitSpinnerAndProgress()
 
 	p := tea.NewProgram(model{mpv: client, spinner: spin, progress: prog})
 	go func() {
