@@ -22,6 +22,9 @@ type model struct {
 	timePos      string
 	timePosFlag  float64
 	paused       string
+	repeat       bool
+	repeatFlag   string
+	playlistPos  int
 	duration     string
 	durationFlag float64
 	spinner      spinner.Model
@@ -53,6 +56,10 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if name, value, ok := msg.PropertyFloat(); ok && name == "duration" {
 			m.duration = internal.FormatTime(value)
 			m.durationFlag = value
+		}
+		if name, value, ok := msg.PropertyFloat(); ok && name == "playlist-pos" {
+			index := value
+			m.playlistPos = int(index)
 		}
 		if name, value, ok := msg.PropertyBool(); ok && name == "pause" {
 			if value {
@@ -95,6 +102,15 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			m.mpv.SetVolume(total)
 			return m, nil
+		case "d":
+			m.repeat = !m.repeat
+			if m.repeat {
+				m.repeatFlag = "repeat"
+				m.mpv.Send("set_property", "loop-file", "inf")
+			} else {
+				m.repeatFlag = ""
+				m.mpv.Send("set_property", "loop-file", "no")
+			}
 		case "ctrl+c", "q":
 			return m, tea.Quit
 		}
@@ -112,16 +128,14 @@ func (m model) View() tea.View {
 	volStr := strconv.FormatFloat(vol, 'f', 0, 64)
 	spacer := strings.Repeat("\t", 9)
 	percent := (m.timePosFlag / m.durationFlag)
-
 	content := lipgloss.JoinVertical(
 		lipgloss.Left,
 		m.spinner.View()+"torch-song",
 		"current song: "+m.title,
 		"",
 		m.timePos+"/"+m.duration+spacer+"Volume: "+volStr,
-		m.paused+"  "+m.progress.ViewAs(percent),
+		m.paused+"  "+m.progress.ViewAs(percent)+" "+m.repeatFlag,
 		"",
-
 		"j -> prev | k -> next | h/l -> adjust volume | a -> pause/play | escape -> mute | v -> shuffle",
 	)
 
@@ -132,11 +146,11 @@ func (m model) View() tea.View {
 }
 
 func main() {
-	currDir, err := os.Getwd()
+	homeDir, err := os.UserHomeDir()
 	if err != nil {
-		log.Fatalf("failed to get curr dir: %v", err)
+		log.Printf("failed to access user home dir")
 	}
-	filePath := filepath.Join(currDir + "/Music")
+	filePath := filepath.Join(homeDir, "/Music")
 	socketPath := "/tmp/mpv.sock"
 	server, client, err := gompv.StartAndConnect(context.Background(), socketPath, filePath)
 	if err != nil {
@@ -145,7 +159,7 @@ func main() {
 	defer server.Stop()
 	defer client.Close()
 
-	err = client.ObserveProperties("media-title", "time-pos", "pause", "duration")
+	err = client.ObserveProperties("media-title", "time-pos", "pause", "duration", "playlist-pos")
 	if err != nil {
 		log.Printf("Failed to observe properties")
 	}
