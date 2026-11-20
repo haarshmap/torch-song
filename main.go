@@ -12,6 +12,7 @@ import (
 	"charm.land/bubbles/v2/spinner"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
+	"github.com/BurntSushi/toml"
 	"github.com/haarshmap/torch-song/internal"
 	"github.com/ioksc/gompv"
 )
@@ -29,6 +30,7 @@ type model struct {
 	durationFlag float64
 	spinner      spinner.Model
 	progress     progress.Model
+	data         map[string]any
 }
 
 var (
@@ -44,6 +46,7 @@ func (m model) Init() tea.Cmd {
 }
 
 func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	keybinds := m.data["Keybinds"].(map[string]any)
 	switch msg := msg.(type) {
 	case gompv.Event:
 		if name, value, ok := msg.PropertyString(); ok && name == "media-title" {
@@ -71,22 +74,22 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 	case tea.KeyPressMsg:
 		switch msg.String() {
-		case "a":
+		case keybinds["play"]:
 			m.mpv.TogglePause()
 			return m, nil
-		case "k":
+		case keybinds["next"]:
 			m.mpv.Next()
 			return m, nil
-		case "j":
+		case keybinds["prev"]:
 			m.mpv.Prev()
 			return m, nil
-		case "esc":
+		case keybinds["mute"]:
 			m.mpv.ToggleMute()
 			return m, nil
-		case "v":
+		case keybinds["shuffle"]:
 			m.mpv.Shuffle()
 			return m, nil
-		case "l":
+		case keybinds["vol-up"]:
 			total, _ := m.mpv.GetVolume()
 			total += 5
 			if total > 100 {
@@ -94,7 +97,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			m.mpv.SetVolume(total)
 			return m, nil
-		case "h":
+		case keybinds["vol-down"]:
 			total, _ := m.mpv.GetVolume()
 			total -= 5
 			if total < 0 {
@@ -102,7 +105,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			m.mpv.SetVolume(total)
 			return m, nil
-		case "d":
+		case keybinds["repeat"]:
 			m.repeat = !m.repeat
 			if m.repeat {
 				m.repeatFlag = "repeat"
@@ -128,6 +131,8 @@ func (m model) View() tea.View {
 	volStr := strconv.FormatFloat(vol, 'f', 0, 64)
 	spacer := strings.Repeat("\t", 9)
 	percent := (m.timePosFlag / m.durationFlag)
+	keybinds := m.data["Keybinds"].(map[string]any)
+
 	content := lipgloss.JoinVertical(
 		lipgloss.Left,
 		m.spinner.View()+"torch-song",
@@ -136,7 +141,8 @@ func (m model) View() tea.View {
 		m.timePos+"/"+m.duration+spacer+"Volume: "+volStr,
 		m.paused+"  "+m.progress.ViewAs(percent)+" "+m.repeatFlag,
 		"",
-		"j -> prev | k -> next | h/l -> adjust volume | a -> pause/play | escape -> mute | v -> shuffle",
+		keybinds["prev"].(string)+" -> prev | "+keybinds["next"].(string)+" -> next | "+keybinds["vol-down"].(string)+"/"+keybinds["vol-up"].(string)+" -> adjust volume | "+keybinds["play"].(string)+" -> play | "+keybinds["mute"].(string)+" -> mute | "+
+			keybinds["shuffle"].(string)+" -> shuffle | "+keybinds["repeat"].(string)+" -> repeat",
 	)
 
 	v := tea.NewView(container.Render(content))
@@ -146,11 +152,17 @@ func (m model) View() tea.View {
 }
 
 func main() {
-	homeDir, err := os.UserHomeDir()
+	config := make(map[string]any)
+	_, err := toml.DecodeFile("config.toml", &config)
 	if err != nil {
-		log.Printf("failed to access user home dir")
+		log.Fatalf("failed to parse config: %v", err)
 	}
-	filePath := filepath.Join(homeDir, "/Music")
+
+	Dir := config["Directory"].(map[string]any)
+	music := Dir["path"].(string)
+
+	homeDir, _ := os.UserHomeDir()
+	filePath := filepath.Join(homeDir, music)
 	socketPath := "/tmp/mpv.sock"
 	server, client, err := gompv.StartAndConnect(context.Background(), socketPath, filePath)
 	if err != nil {
@@ -164,8 +176,7 @@ func main() {
 		log.Printf("Failed to observe properties")
 	}
 	spin, prog := internal.InitSpinnerAndProgress()
-
-	p := tea.NewProgram(model{mpv: client, spinner: spin, progress: prog})
+	p := tea.NewProgram(model{mpv: client, spinner: spin, progress: prog, data: config})
 	go func() {
 		for ev := range client.Events() {
 			p.Send(ev)

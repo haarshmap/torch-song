@@ -1,0 +1,13 @@
+[Directory]
+path = "/Music"
+
+[Keybinds]
+next = "k"
+prev = "j"
+vol-down = "h"
+vol-up = "l"
+mute = "esc"
+play = "a"
+repeat = "d"
+shuffle = "v"
+
